@@ -1,0 +1,208 @@
+cm = {}
+cm["Am"] = (chord :a2, :m)
+cm["Am_E"] = (chord :a2, :m)+[:e3]
+cm["Cmaj7"] = (chord :c3, :major7)
+cm["D"] = :d3
+cm["Cbm7"] = (chord :cb3, :m7)
+use_bpm 60
+unit_sec = 0.25
+a = 2.0
+duration_factor = 2.0
+att = 0.02*duration_factor
+dec = 0.3*duration_factor
+sus = 0.3*duration_factor
+rel = 0.4*duration_factor
+
+nptn1 = [:b4, :eb5, :fs5, :eb5, :fs5, :eb5, :r]
+nptn2 = [:b4, :ds5, :e5, :cb5, :e5, :cb5, :r]
+nptn3 = [:b4, :eb5, :fs5, :ab5, :fs5, :ab5, :r]
+nptn4 = [:ab5]*6
+tptn1 = (ring 0.25, 0.25, 0.12, 0.25, 0.12, 0.5, 0.5)
+tptn2 = (knit 0.4, 6)
+
+define :translate do |accum:,chords:,repeat: 1|ar=chords.split(" ");repeat.times{ar.each{|e|accum.push(cm[e])}} end
+
+define :riff1 do |t, nums, chords, amp_coef, rel_coef, cue_2nd|
+  chd1=(chord chords[0],:m)
+  chd2=(chord chords[1],:m)
+  nums.times{[chd1,chd2].each{|chd|synth :tech_saws,note: chd,amp: a*amp_coef,attack: t*0.5,decay: t*0.2,sustain: t*0.2,release: t*rel_coef;sleep t}}
+  if cue_2nd
+    sleep 5;cue :main_cue
+  end
+end
+
+define :riff2 do |achords, rtimes|
+  with_fx :reverb,room: 0.7,mix: 0.5 do
+    with_fx :distortion,mix: 0.7,distort: 0.6 do
+      with_fx :ping_pong,mix: 0.7,phase: 0.4,feedback: 0.5 do
+        achords.each {|n|
+          t=rtimes.tick(:r1)
+          synth :piano,note: n,amp: a*0.1,attack: t*att*2,decay: t*dec*2,sustain: t*sus*2,release: t*rel*4;sleep t
+        }
+      end
+    end
+  end
+end
+
+define :bass do |para,lriff2|
+  in_thread{para.call}
+  prg = "Am Am_E "*3+"Cmaj7 "*6+"D "*6+"Cbm7 "*6
+  achord = [];translate accum: achord,chords: prg
+  achord.each_with_index {|ac,i|
+    in_thread{sleep 0.275;lriff2.call} if lriff2!=nil && i==20
+    t = (ring 0.425,0.425,0.425,0.275,0.275,0.275).tick(:r2)
+    synth :fm,note: ac,amp: a*1.0,pitch: 4;sleep t
+  }
+end
+
+define :main_stream1 do
+  prg = ("Am Am_E "*6+"Cmaj7 "*12)*2
+  achord = [];translate accum: achord,chords: prg
+  achord.each_with_index {|ac,i|
+    t=(ring 0.425,0.425,0.425,0.425,0.275,0.275).tick(:r3)
+    synth :fm, note: ac, amp: a*0.5, pitch: 4
+    c=ac;c=ac[0] if ac.instance_of?(SonicPi::Core::RingVector)
+    dur = (ring 4,0,0,0,1,1).tick(:r4)
+    if dur != 0
+      sample :perc_bell,rate: (1.0+c.to_f/61.0),amp: a*0.3,attack: t*att*0.25,decay: t*dec*0.25,sustain: t*sus*0.25,release: t*rel
+      ts = t*dur
+      synth :sine,note: chord(c,:m),amp: a*0.3,pitch: 16,attack: ts*att*0.25,decay: ts*dec*0.25,sustain: ts*sus*0.25,release: ts*rel*1.0
+    end
+    sleep t
+  }
+end
+
+define :main_stream2 do
+  rt = ([unit_sec*8]*3+[unit_sec*4]*2).ring
+  with_fx :reverb,room: 0.7,mix: 0.5 do
+    [cm["Am"],cm["Cmaj7"],cm["D"],cm["Cmaj7"],cm["Cbm7"]].each{|n|
+      t=rt.tick(:r5)
+      c=n;c=n[0] if n.instance_of?(SonicPi::Core::RingVector)
+      synth :sine,note: chord(c,:m),amp: a*0.3,pitch: 6,attack: t*att*0.25,decay: t*dec*0.25,sustain: t*sus*0.25,release: t*rel*1.0;sleep t
+    }
+  end
+end
+
+define :main_stream3 do
+  t=unit_sec*4
+  with_fx :reverb,room: 0.8,mix: 0.6 do
+    (scale :b4,:major).take(5).reverse.each{|n|
+      bn=(ring cm["Am"],cm["Cmaj7"],cm["D"],cm["Cbm7"],cm["Am"]).tick(:r6)
+      c=bn;c=bn[0] if bn.instance_of?(SonicPi::Core::RingVector)
+      synth :sine,note: chord(c,:m),amp: a*0.3,pitch: 6,attack: t*att*0.25,decay: t*dec*0.25,sustain: t*sus*0.25,release: t*rel*1.0
+      with_fx :distortion,mix: 0.8,distort: 0.7 do
+        with_fx :ping_pong,mix: 0.7,phase: 0.42,feedback: 0.6 do
+          synth :piano, note: n,amp: a*0.075,attack: t*att*0.1,decay: t*dec,sustain: t*sus,release: t*rel*4;sleep t
+        end
+      end
+    }
+  end
+  in_thread{riff1 unit_sec*4.5,1,[:d4, :g4],0.5,1.0,false};sleep t*3
+end
+
+define :main_stream4 do |num,para|
+  para.each {|p|in_thread{p.call}} if para!=nil
+  t=unit_sec*8
+  with_fx :reverb,room: 0.7,mix: 0.5 do
+    num.times {[cm["Am"],cm["Cmaj7"],cm["D"],cm["Cbm7"]].each{|n|t=(knit t,4).tick(:r7);synth :piano,note: n,amp: a*0.4,attack: t*att,decay: t*dec,sustain: t*sus,release: t*rel;sleep t}}
+  end
+end
+
+live_loop :drum do
+  sr = 0.9
+  t=unit_sec
+  bell=->{sample :perc_bell,rate: 1.5,amp: a*0.1,start: 0,finish: 0.025}
+  tri=->(n){n.times{|i|(chord :a4,:M).reverse.each{|e|synth :tri,note: e,amp: a*0.3*(0.1-i.to_f*0.02);sleep t/(0.25*(n+1))};break if i>2}}
+  sync :drum_cue
+  [
+    ("13221010"+"13221414")*4,
+    "56885788"*12,
+    "h7a897b8"+"97a89jii"+"97a897bc"+"97a897bd"+"97a897bc"+"97a89jef"+"97a897bc"+"l0l0lkg0",
+    "m7n8m7n8"*8,
+    "56885788"*16,
+  ].each {|beats|
+    beats.length.times {|j|
+      b=beats[j]
+      sample :bd_ada,amp: a*0.85,rate: 0.75 if b=="1"
+      sample :drum_bass_soft,amp: a*0.3,rate: sr if b=="2"
+      sample :bd_haus,amp: a*0.2,rate: 1.0 if b=="5"
+      sample :drum_snare_soft,amp: a*0.3,rate: 0.4 if ["5","8","a","b","c","d","e","f","i","n"].include?(b)
+      in_thread{[[1.0,0.01],[1,0.075],[0.25,0.08]].each {|e|sample :elec_filt_snare,amp: a*0.1,rate: e[0],start: 0,finish: e[1];sleep t*0.5}} if b=="6"
+      sample :bass_hit_c,amp: a*0.25,rate: 0.7 if ["9","h"].include?(b)
+      sample :bass_hit_c,amp: a*0.25,rate: 1.5 if b=="a"
+      (sample :bass_hit_c,amp: a*0.25,rate: 0.7;bell.call) if b=="i"
+      sample :drum_cymbal_closed,amp: a*0.5,rate: -1.25,beat_stretch: 0.35 if ["d","h"].include?(b)
+      (sample :bass_hit_c,amp: a*0.25,rate: 1.5,beat_stretch: 0.5;bell.call) if b=="e"
+      (sample :bass_hit_c,amp: a*0.25,rate: 0.7;bell.call) if b=="f"
+      in_thread{
+        with_fx :reverb, room: 0.9, mix: 0.6 do
+          with_fx :rlpf do
+            [[0.175,0.4,0.025],[0.25,0.6,0.05],[0.2,0.375,0.1]].each{|e|sample :elec_filt_snare,amp: a*0.2,rate: e[1],start: 0,finish: e[2];sleep e[0]}
+          end
+        end
+      } if b=="g"
+      in_thread{sleep t;tri.call 1} if b=="j"
+      in_thread{sleep t*1.5;tri.call 5} if b=="k"
+      bell.call if ["k","l"].include?(b)
+      sample :bd_ada,amp: a*0.6,rate: 0.75 if b=="m"
+      sample :bd_ada,amp: a*0.6,rate: 0.65 if b=="n"
+      
+      (3.times{|i|sample :drum_bass_soft,amp: a*0.1,rate: sr if i!=0;sleep t*0.333333};next) if b=="3"
+      (3.times{|i|sample :drum_bass_soft,amp: a*0.3,rate: sr if i==0;sleep t*0.333333};next) if b=="4"
+      sample :drum_snare_soft,amp: a*0.3,rate: 0.4 if ["6","7","j"].include?(b)
+      (2.times{|i|sample :drum_snare_soft,amp: a*0.3,rate: 0.4 if i!=0;sleep t*0.5};next) if ["6","7","j"].include?(b)
+      (2.times{sample :bass_hit_c,amp: a*0.25,rate: 0.7;bell.call;sleep t*0.5};next) if b=="b"
+      (2.times{|i|(sample :bass_hit_c,amp: a*0.25,rate: 0.7;bell.call) if i==1;sleep t*0.5};next) if b=="c"
+      sleep t
+    }
+  }
+end
+
+live_loop :main do
+  # part1
+  bass ->{riff1 4,2,[:d3,:g3],0.1,0.5,false},->{riff2 nptn1,tptn1}
+  bass ->{riff1 4,1,[:d6,:g7],0.5,1.0,true},nil
+  
+  # part2
+  sync :main_cue
+  main_stream1
+  
+  # part3
+  cue :drum_cue
+  main_stream2
+  main_stream3
+  
+  # part4
+  c1 = [0.385, 0.75, 0.1, 0.475]
+  c2_1 = [0.2, 0.95, 0.1, 0.3]
+  c2_2 = [0.01, 0.85, 0.0, 0.01]
+  c3 = [0.4, 1.1, 0.0, 0.4]
+  c4 = [0.25, 0.95, 0.0, 0.25]
+  c5 = [0.2, 0.85, 0.0, 0.2]
+  c6_1 = [0.4, 0.92, 0.0, 0.4]
+  c6_2 = [0.05, 0.6, 0.0, 0.05]
+  c7_1 = [0.25, 1.0, 0.0, 0.25]
+  c7_2 = [0.125, 1.1, 0.0, 0.15]
+  choir=->(c){c.each{|e|sample :ambi_choir,amp: a*0.25,rate: e[1],start: e[2],finish: e[3];sleep e[0]}}
+  l1=->{choir.call [c1]*4+([c2_1]+[c2_1])+[c1]*3+[c3]+[c4]+[c5]+[c1]*4;sleep 1.5;in_thread{riff2 nptn1,tptn1;sleep 1.5};sleep 1.0}
+  l2=->{choir.call [c1]*4+([c2_1]+[c2_1])+[c1]*3+([c6_1]+[c6_2])*2+[c1]*3+([c7_1]+[c7_2]);sleep 1.5;
+        in_thread{3.times{riff2 nptn1,tptn1};riff2 nptn2,tptn1}}
+  main_stream4 3,[->{l1.call;l2.call}]
+  
+  # part5
+  noise=->(a_coef){synth :cnoise,amp: a*a_coef,release: unit_sec*32;sleep unit_sec*32}
+  main_stream4 2,[->{noise.call 0.04}]
+  
+  # part6
+  main_stream2
+  main_stream3
+  
+  # part7
+  l2=->{choir.call [c1]*4+([c2_1]+[c2_1])+[c1]*3+([c6_1]+[c6_2])*2+[c1]*3+([c7_1]+[c7_2]);sleep 1.5;
+        in_thread{2.times{|i|3.times{|j|riff2 nptn1,tptn1 if i!=1 || j!=2;riff2 nptn3,tptn1 if i==1 && j==2};riff2 nptn2,tptn1 if i==0;riff2 nptn4,tptn2 if i==1;sleep 2.0}}}
+  main_stream4 3,[->{l1.call;l2.call},->{2.times{noise.call 0.1}}]
+  
+  stop
+  ##| tick_reset_all
+  ##| sleep 15
+end
